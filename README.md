@@ -2,6 +2,12 @@
 
 A beautiful, interactive AI chatbot application featuring authentic personas of real tech educators. Chat with AI versions of **Hitesh Choudhary** and **Piyush Garg** with their authentic personalities, communication styles, and expertise.
 
+## 🌐 Live Demo
+
+**🎯 [Try it live now!](https://persona-lilac.vercel.app/)**
+
+Experience the AI personas in action with real-time chat functionality.
+
 ## ✨ Features
 
 - **Authentic Personas**: Real personalities of Hitesh Choudhary and Piyush Garg
@@ -11,7 +17,7 @@ A beautiful, interactive AI chatbot application featuring authentic personas of 
 - **Authentic Communication**: Real phrases, expressions, and speaking styles
 - **Wide Knowledge Base**: Extensive expertise areas and tutorial references
 
-## 🚀 Live Demo
+## 🚀 Local Development
 
 Visit the application at: [http://localhost:3000](http://localhost:3000)
 
@@ -21,7 +27,7 @@ Visit the application at: [http://localhost:3000](http://localhost:3000)
 
 - Node.js 18+ 
 - npm or yarn
-- Gemini API Key
+- Gemini API Key or OpenAI API Key
 
 ### Step 1: Clone the Repository
 
@@ -46,11 +52,19 @@ Create a `.env.local` file in the root directory:
 touch .env.local
 ```
 
-Add your Gemini API key:
+Add your API key (choose one):
 
+**Option 1: Gemini API (Recommended for free use)**
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
+
+**Option 2: OpenAI API**
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+**Note**: The application is configured to use Gemini API by default. If you want to use OpenAI, you'll need to modify the API configuration in `src/app/api/chat/route.js`.
 
 ### Step 4: Add Profile Images
 
