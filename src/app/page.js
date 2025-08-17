@@ -29,15 +29,15 @@ export default function Home() {
       borderColor: 'border-orange-200'
     },
     {
-      id: 'modi',
+      id: 'narendra_modi',
       name: 'Narendra Modi',
       role: 'Prime Minister of India',
       avatar: '🇮🇳',
-      description: 'Coming Soon - Experience conversations with the Prime Minister of India. Stay tuned for this exciting new persona!',
+      description: 'Experience conversations with the Narendra Modi.',
       color: 'from-green-500 to-orange-600',
       bgColor: 'bg-gradient-to-br from-green-50 to-orange-50',
       borderColor: 'border-green-200',
-      comingSoon: true
+     
     }
   ];
 
