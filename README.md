@@ -8,8 +8,8 @@ switch between them instantly.
 > Built with Next.js 16, TypeScript, Tailwind CSS v4, shadcn/ui, Vercel AI
 > Elements, and the Vercel AI SDK v7 (OpenAI). Runs on **Bun**.
 
-- **Live demo:** _add your Vercel URL here_
-- **Repository:** _add your GitHub URL here_
+- **Live demo:** <https://persona-pink.vercel.app/>
+- **Repository:** <https://github.com/Pratik4230/Persona>
 
 ---
 
