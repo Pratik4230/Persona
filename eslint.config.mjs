@@ -1,14 +1,19 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [...compat.extends("next/core-web-vitals")];
+/** @type {import('eslint').Linter.Config[]} */
+const eslintConfig = [
+  {
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      // Generated agent-guidance scripts dropped by the AI Elements CLI
+      ".agents/**",
+      // Generated component source (shadcn/ui + Vercel AI Elements)
+      "src/components/ui/**",
+      "src/components/ai-elements/**",
+    ],
+  },
+  ...nextCoreWebVitals,
+];
 
 export default eslintConfig;
