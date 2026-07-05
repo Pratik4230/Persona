@@ -37,7 +37,7 @@ export function deriveTitle(messages: UIMessage[]): string {
   return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text;
 }
 
-function toMeta(doc: ChatSessionDocument): SessionMeta {
+export function toMeta(doc: ChatSessionDocument): SessionMeta {
   return {
     id: doc.id,
     personaId: doc.personaId,
