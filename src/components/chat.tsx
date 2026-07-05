@@ -37,6 +37,7 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { ChatSidebar } from "@/components/chat-sidebar";
+import { MessageSources } from "@/components/message-sources";
 import { PersonaSwitcher } from "@/components/persona-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -70,6 +71,7 @@ import {
   type PersonaId,
 } from "@/lib/personas";
 import { cn, removeEmDashes } from "@/lib/utils";
+import { extractMessageSources } from "@/lib/resources/extract-message-sources";
 
 function PersonaAvatar({
   persona,
@@ -84,7 +86,11 @@ function PersonaAvatar({
     <Avatar
       className={cn(
         "shrink-0",
-        ring && cn("ring-2 ring-offset-2 ring-offset-background", persona.accent.ring),
+        ring &&
+          cn(
+            "ring-2 ring-offset-2 ring-offset-background",
+            persona.accent.ring,
+          ),
         className,
       )}
     >
@@ -230,7 +236,7 @@ function Hero({
 export function Chat() {
   useLocalSessionMigration();
 
-  const { data: sessions = [] } = useSessions();
+  const { data: sessions = [], isSuccess: sessionsReady } = useSessions();
   const { data: usage } = useUsage();
   const remaining = usage?.remaining ?? DAILY_MESSAGE_LIMIT;
 
@@ -295,12 +301,19 @@ export function Chat() {
     [personaId, activeId],
   );
 
-  const { messages, sendMessage, status, stop, error, regenerate, setMessages } =
-    useChat({
-      transport,
-      onError: onChatError,
-      onFinish: onChatFinish,
-    });
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    regenerate,
+    setMessages,
+  } = useChat({
+    transport,
+    onError: onChatError,
+    onFinish: onChatFinish,
+  });
 
   const isBusy = status === "submitted" || status === "streaming";
   const submitLocked = isBusy || isSubmitting;
@@ -318,6 +331,7 @@ export function Chat() {
 
   useChatBootstrap({
     sessions,
+    sessionsReady,
     bootstrapped,
     setBootstrapped,
     fetchSession,
@@ -332,11 +346,12 @@ export function Chat() {
       releaseSubmitLock();
       stop();
       loadingRef.current = true;
+      setBootstrapped(true);
       setMessages([]);
       setPersonaId(nextPersona);
       setActiveId(null);
     },
-    [setMessages, stop],
+    [setBootstrapped, setMessages, stop],
   );
 
   const handleNewChat = useCallback(() => {
@@ -425,7 +440,9 @@ export function Chat() {
       try {
         if (!sessionId) {
           const title =
-            trimmed.length > 48 ? `${trimmed.slice(0, 48).trimEnd()}…` : trimmed;
+            trimmed.length > 48
+              ? `${trimmed.slice(0, 48).trimEnd()}…`
+              : trimmed;
           const session = await create(personaId, title);
           sessionId = session.id;
           saveSessionIdRef.current = session.id;
@@ -446,6 +463,7 @@ export function Chat() {
       personaId,
       remaining,
       sendMessage,
+      setBootstrapped,
     ],
   );
 
@@ -539,6 +557,9 @@ export function Chat() {
                     isAssistant && index === lastMessageIndex && !isBusy;
                   const rawText = getMessageText(message);
                   const text = isAssistant ? removeEmDashes(rawText) : rawText;
+                  const sources = isAssistant
+                    ? extractMessageSources(message)
+                    : [];
 
                   return (
                     <motion.div
@@ -574,6 +595,10 @@ export function Chat() {
                               ) : null,
                             )}
                           </MessageContent>
+
+                          {isAssistant && sources.length > 0 && (
+                            <MessageSources sources={sources} />
+                          )}
 
                           {showActions && text.length > 0 && (
                             <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -643,7 +668,10 @@ export function Chat() {
             >
               <PromptInputBody>
                 <PromptInputTextarea
-                  disabled={(limitReached || conversationFull || isSubmitting) && !isBusy}
+                  disabled={
+                    (limitReached || conversationFull || isSubmitting) &&
+                    !isBusy
+                  }
                   maxLength={MAX_MESSAGE_CHARS}
                   placeholder={
                     limitReached
@@ -665,7 +693,10 @@ export function Chat() {
                     "bg-linear-to-br text-white transition-opacity hover:opacity-90",
                     persona.accent.gradient,
                   )}
-                  disabled={(limitReached || conversationFull || isSubmitting) && !isBusy}
+                  disabled={
+                    (limitReached || conversationFull || isSubmitting) &&
+                    !isBusy
+                  }
                   onStop={handleStop}
                   status={status}
                 />

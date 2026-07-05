@@ -9,6 +9,8 @@ import type { PersonaId } from "@/lib/personas";
 
 interface UseChatBootstrapOptions {
   sessions: SessionMeta[];
+  /** True once the sessions query has resolved (avoids treating "loading" as empty). */
+  sessionsReady: boolean;
   bootstrapped: boolean;
   setBootstrapped: (value: boolean) => void;
   fetchSession: (id: string) => Promise<{ id: string; personaId: PersonaId; messages: UIMessage[] }>;
@@ -18,8 +20,10 @@ interface UseChatBootstrapOptions {
   loadingRef: RefObject<boolean>;
 }
 
+/** Restore the latest saved session once on load. Never runs again after bootstrap. */
 export function useChatBootstrap({
   sessions,
+  sessionsReady,
   bootstrapped,
   setBootstrapped,
   fetchSession,
@@ -28,24 +32,40 @@ export function useChatBootstrap({
   setActiveId,
   loadingRef,
 }: UseChatBootstrapOptions) {
+  const latestSessionId = sessions[0]?.id ?? null;
+
   useEffect(() => {
-    if (bootstrapped || sessions.length === 0) {
+    if (bootstrapped || !sessionsReady) {
       return;
     }
 
-    const latest = sessions[0];
-    void fetchSession(latest.id).then((session) => {
+    if (!latestSessionId) {
+      setBootstrapped(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchSession(latestSessionId).then((session) => {
+      if (cancelled) {
+        return;
+      }
       loadingRef.current = true;
       setPersonaId(session.personaId);
       setMessages(session.messages);
       setActiveId(session.id);
       setBootstrapped(true);
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     bootstrapped,
     fetchSession,
+    latestSessionId,
     loadingRef,
-    sessions,
+    sessionsReady,
     setActiveId,
     setBootstrapped,
     setMessages,

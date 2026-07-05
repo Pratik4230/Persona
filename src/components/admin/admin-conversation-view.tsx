@@ -12,9 +12,11 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
+import { MessageSources } from "@/components/message-sources";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Persona, PersonaId } from "@/lib/personas";
 import { getPersona } from "@/lib/personas";
+import { extractMessageSources } from "@/lib/resources/extract-message-sources";
 import { cn, removeEmDashes } from "@/lib/utils";
 
 function PersonaAvatar({
@@ -65,15 +67,20 @@ export function AdminConversationView({
                 {isAssistant ? (
                   <PersonaAvatar className="mt-0.5 size-8" persona={persona} />
                 ) : null}
-                <MessageContent>
-                  {message.parts.map((part, partIndex) =>
-                    part.type === "text" ? (
-                      <MessageResponse key={`${message.id}-${partIndex}`}>
-                        {isAssistant ? removeEmDashes(part.text) : part.text}
-                      </MessageResponse>
-                    ) : null,
-                  )}
-                </MessageContent>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <MessageContent>
+                    {message.parts.map((part, partIndex) =>
+                      part.type === "text" ? (
+                        <MessageResponse key={`${message.id}-${partIndex}`}>
+                          {isAssistant ? removeEmDashes(part.text) : part.text}
+                        </MessageResponse>
+                      ) : null,
+                    )}
+                  </MessageContent>
+                  {isAssistant ? (
+                    <MessageSources sources={extractMessageSources(message)} />
+                  ) : null}
+                </div>
               </Message>
             );
           })

@@ -18,6 +18,8 @@ import {
 } from "@/lib/chat/repository";
 import { MAX_MESSAGE_CHARS } from "@/lib/limits";
 import { getPersona } from "@/lib/personas";
+import { buildResourceRecommendationInstructions } from "@/lib/resources/persona-search-hints";
+import { createPersonaWebSearchTool } from "@/lib/resources/web-search-tool";
 import {
   getActiveCooldown,
   type MisuseReason,
@@ -31,7 +33,7 @@ import {
   writeRoastToStream,
 } from "@/lib/security/roast-stream";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const MODEL = process.env.CHAT_MODEL ?? "gpt-5.4-nano";
 const MAX_HISTORY_MESSAGES = 24;
@@ -139,18 +141,21 @@ export async function POST(req: Request) {
   const recentMessages = messages.slice(-MAX_HISTORY_MESSAGES);
   let misuseReason: MisuseReason | null = null;
 
+  const chatTools = {
+    web_search: createPersonaWebSearchTool(persona.id),
+    applyMisuseCooldown: createMisuseCooldownTool(userId, {
+      onApplied: (reason) => {
+        misuseReason = reason;
+      },
+    }),
+  };
+
   const result = streamText({
     model: openai(MODEL),
-    instructions: `${MISUSE_GUARD_INSTRUCTIONS}\n\n${persona.systemPrompt}`,
+    instructions: `${MISUSE_GUARD_INSTRUCTIONS}\n\n${persona.systemPrompt}\n\n${buildResourceRecommendationInstructions(persona)}`,
     messages: await convertToModelMessages(recentMessages),
-    tools: {
-      applyMisuseCooldown: createMisuseCooldownTool(userId, {
-        onApplied: (reason) => {
-          misuseReason = reason;
-        },
-      }),
-    },
-    stopWhen: stepCountIs(4),
+    tools: chatTools,
+    stopWhen: stepCountIs(8),
     onStepFinish: ({ toolCalls }) => {
       for (const toolCall of toolCalls) {
         if (toolCall.toolName !== "applyMisuseCooldown") {
@@ -169,6 +174,8 @@ export async function POST(req: Request) {
     execute: async ({ writer }) => {
       const uiStream = toUIMessageStream({
         stream: result.stream,
+        tools: chatTools,
+        sendSources: true,
         onError: (error) => {
           console.error("[/api/chat] stream error:", error);
           if (error instanceof Error) {
