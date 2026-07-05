@@ -37,7 +37,7 @@ export function AuthShell({
             className="inline-flex items-center gap-2 font-semibold text-lg tracking-tight"
             href="/"
           >
-            <span className="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-orange-500 via-fuchsia-500 to-indigo-500 text-white text-sm">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-orange-500 via-orange-600 to-zinc-950 text-white text-sm">
               P
             </span>
             Persona AI

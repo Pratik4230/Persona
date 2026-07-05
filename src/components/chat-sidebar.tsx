@@ -112,7 +112,7 @@ export function ChatSidebar({
   return (
     <div className={cn("flex h-full flex-col bg-muted/30", className)}>
       <div className="flex items-center gap-2 px-4 py-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-orange-500 via-fuchsia-500 to-indigo-500 text-white shadow-sm">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-orange-500 via-orange-600 to-zinc-950 text-white shadow-sm">
           <UserRoundIcon className="size-4" />
         </div>
         <div className="min-w-0 leading-tight">

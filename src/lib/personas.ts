@@ -194,10 +194,10 @@ export const PERSONAS: Record<PersonaId, Persona> = {
     avatar: "/images/piyush.png",
     initials: "PG",
     accent: {
-      text: "text-indigo-500",
-      gradient: "from-indigo-500 to-violet-600",
-      soft: "bg-indigo-500/10",
-      ring: "ring-indigo-500/60",
+      text: "text-orange-700 dark:text-orange-400",
+      gradient: "from-orange-700 to-zinc-950",
+      soft: "bg-orange-500/10",
+      ring: "ring-orange-700/60",
     },
     expertise: [
       "System Design",
