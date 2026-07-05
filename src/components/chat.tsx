@@ -1,5 +1,6 @@
 "use client";
 
+import type { UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import {
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -52,7 +53,9 @@ import {
   useSessions,
   useUsage,
 } from "@/hooks/use-chat-sessions";
+import { useChatBootstrap } from "@/hooks/use-chat-bootstrap";
 import { useLocalSessionMigration } from "@/hooks/use-local-session-migration";
+import { useNewChatShortcut } from "@/hooks/use-new-chat-shortcut";
 import { getMessageText } from "@/lib/chat/types";
 import {
   DAILY_MESSAGE_LIMIT,
@@ -138,9 +141,11 @@ function TypingIndicator({ persona }: { persona: Persona }) {
 function Hero({
   persona,
   onPick,
+  submitLocked,
 }: {
   persona: Persona;
   onPick: (text: string) => void;
+  submitLocked?: boolean;
 }) {
   return (
     <motion.div
@@ -193,7 +198,9 @@ function Hero({
               "hover:border-transparent hover:bg-accent hover:shadow-sm",
               persona.accent.ring,
               "hover:ring-2",
+              submitLocked && "pointer-events-none opacity-50",
             )}
+            disabled={submitLocked}
             key={starter}
             onClick={() => onPick(starter)}
             type="button"
@@ -239,6 +246,42 @@ export function Chat() {
     useSessionActions();
 
   const loadingRef = useRef(false);
+  const submitLockRef = useRef(false);
+  const saveSessionIdRef = useRef<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const releaseSubmitLock = () => {
+    submitLockRef.current = false;
+    setIsSubmitting(false);
+  };
+
+  const acquireSubmitLock = () => {
+    submitLockRef.current = true;
+    setIsSubmitting(true);
+  };
+
+  const onChatError = useCallback(
+    (chatError: Error) => {
+      releaseSubmitLock();
+      toast.error(
+        chatError.message || "Something went wrong. Please try again.",
+      );
+      void invalidateUsage();
+    },
+    [invalidateUsage],
+  );
+
+  const onChatFinish = useCallback(
+    ({ messages: latestMessages }: { messages: UIMessage[] }) => {
+      releaseSubmitLock();
+      void invalidateUsage();
+      const id = activeId ?? saveSessionIdRef.current;
+      if (id && latestMessages.length > 0) {
+        void saveMessages(id, latestMessages);
+      }
+    },
+    [activeId, invalidateUsage, saveMessages],
+  );
 
   const transport = useMemo(
     () =>
@@ -255,55 +298,38 @@ export function Chat() {
   const { messages, sendMessage, status, stop, error, regenerate, setMessages } =
     useChat({
       transport,
-      onError: (chatError) => {
-        toast.error(
-          chatError.message || "Something went wrong. Please try again.",
-        );
-        void invalidateUsage();
-      },
-      onFinish: () => {
-        void invalidateUsage();
-      },
+      onError: onChatError,
+      onFinish: onChatFinish,
     });
 
   const isBusy = status === "submitted" || status === "streaming";
+  const submitLocked = isBusy || isSubmitting;
   const hasMessages = messages.length > 0;
+
+  const handleStop = useCallback(() => {
+    stop();
+    releaseSubmitLock();
+  }, [stop]);
   const firstName = persona.name.split(" ")[0];
   const userMessageCount = messages.filter((m) => m.role === "user").length;
   const conversationFull =
     userMessageCount >= MAX_USER_MESSAGES_PER_SESSION ||
     messages.length >= MAX_TOTAL_MESSAGES_PER_SESSION;
 
-  useEffect(() => {
-    if (bootstrapped || sessions.length === 0) {
-      return;
-    }
-    const latest = sessions[0];
-    void fetchSession(latest.id).then((session) => {
-      loadingRef.current = true;
-      setPersonaId(session.personaId);
-      setMessages(session.messages);
-      setActiveId(session.id);
-      setBootstrapped(true);
-    });
-  }, [sessions, bootstrapped, fetchSession, setMessages]);
-
-  useEffect(() => {
-    if (loadingRef.current) {
-      loadingRef.current = false;
-      return;
-    }
-    if (!activeId || messages.length === 0) {
-      return;
-    }
-    if (status === "streaming" || status === "submitted") {
-      return;
-    }
-    void saveMessages(activeId, messages);
-  }, [status, messages, activeId, saveMessages]);
+  useChatBootstrap({
+    sessions,
+    bootstrapped,
+    setBootstrapped,
+    fetchSession,
+    setMessages,
+    setPersonaId,
+    setActiveId,
+    loadingRef,
+  });
 
   const startFresh = useCallback(
     (nextPersona: PersonaId) => {
+      releaseSubmitLock();
       stop();
       loadingRef.current = true;
       setMessages([]);
@@ -316,6 +342,8 @@ export function Chat() {
   const handleNewChat = useCallback(() => {
     startFresh(personaId);
   }, [personaId, startFresh]);
+
+  useNewChatShortcut(handleNewChat);
 
   const handlePersonaChange = useCallback(
     (id: PersonaId) => {
@@ -366,7 +394,7 @@ export function Chat() {
   const submit = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || isBusy) {
+      if (!trimmed || submitLockRef.current || isBusy) {
         return;
       }
 
@@ -391,21 +419,24 @@ export function Chat() {
         return;
       }
 
+      acquireSubmitLock();
+
       let sessionId = activeId;
-      if (!sessionId) {
-        try {
+      try {
+        if (!sessionId) {
           const title =
             trimmed.length > 48 ? `${trimmed.slice(0, 48).trimEnd()}…` : trimmed;
           const session = await create(personaId, title);
           sessionId = session.id;
+          saveSessionIdRef.current = session.id;
           setActiveId(session.id);
-        } catch {
-          toast.error("Could not create chat");
-          return;
         }
-      }
 
-      sendMessage({ text: trimmed });
+        sendMessage({ text: trimmed });
+      } catch {
+        releaseSubmitLock();
+        toast.error("Could not send message");
+      }
     },
     [
       activeId,
@@ -417,21 +448,6 @@ export function Chat() {
       sendMessage,
     ],
   );
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        event.key.toLowerCase() === "o"
-      ) {
-        event.preventDefault();
-        handleNewChat();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleNewChat]);
 
   const lastMessageIndex = messages.length - 1;
 
@@ -578,7 +594,11 @@ export function Chat() {
                   );
                 })
               ) : (
-                <Hero onPick={(text) => void submit(text)} persona={persona} />
+                <Hero
+                  onPick={(text) => void submit(text)}
+                  persona={persona}
+                  submitLocked={submitLocked}
+                />
               )}
 
               {status === "submitted" && <TypingIndicator persona={persona} />}
@@ -623,7 +643,7 @@ export function Chat() {
             >
               <PromptInputBody>
                 <PromptInputTextarea
-                  disabled={(limitReached || conversationFull) && !isBusy}
+                  disabled={(limitReached || conversationFull || isSubmitting) && !isBusy}
                   maxLength={MAX_MESSAGE_CHARS}
                   placeholder={
                     limitReached
@@ -645,8 +665,8 @@ export function Chat() {
                     "bg-linear-to-br text-white transition-opacity hover:opacity-90",
                     persona.accent.gradient,
                   )}
-                  disabled={(limitReached || conversationFull) && !isBusy}
-                  onStop={stop}
+                  disabled={(limitReached || conversationFull || isSubmitting) && !isBusy}
+                  onStop={handleStop}
                   status={status}
                 />
               </PromptInputFooter>
