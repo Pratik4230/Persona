@@ -2,9 +2,17 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { CheckIcon, CopyIcon, PanelLeftIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CopyIcon,
+  PanelLeftIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  UserRoundIcon,
+} from "lucide-react";
 import { motion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -39,10 +47,19 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { useSessionActions } from "@/hooks/use-chat-sessions";
-import * as store from "@/lib/chat-store";
-import { getMessageText } from "@/lib/chat-store";
-import { DAILY_MESSAGE_LIMIT, MAX_MESSAGE_CHARS } from "@/lib/limits";
+import {
+  useSessionActions,
+  useSessions,
+  useUsage,
+} from "@/hooks/use-chat-sessions";
+import { useLocalSessionMigration } from "@/hooks/use-local-session-migration";
+import { getMessageText } from "@/lib/chat/types";
+import {
+  DAILY_MESSAGE_LIMIT,
+  MAX_MESSAGE_CHARS,
+  MAX_TOTAL_MESSAGES_PER_SESSION,
+  MAX_USER_MESSAGES_PER_SESSION,
+} from "@/lib/limits";
 import {
   DEFAULT_PERSONA_ID,
   getPersona,
@@ -204,56 +221,73 @@ function Hero({
 }
 
 export function Chat() {
-  // One-time synchronous read of the last session from localStorage. Runs only
-  // on the client (the chat UI is rendered client-only, see chat-app.tsx), so
-  // there's no hydration mismatch and the restored conversation shows on the
-  // first paint instead of flashing an empty state.
-  const [bootstrap] = useState(() => {
-    const lastId = store.getActiveSessionId();
-    const index = store.getSessionIndex();
-    const session =
-      (lastId ? store.getSession(lastId) : null) ??
-      (index[0] ? store.getSession(index[0].id) : null);
-    return { session, remaining: store.getUsageToday().remaining };
-  });
+  useLocalSessionMigration();
 
-  const [personaId, setPersonaId] = useState<PersonaId>(
-    bootstrap.session?.personaId ?? DEFAULT_PERSONA_ID,
-  );
-  const [activeId, setActiveId] = useState<string | null>(
-    bootstrap.session?.id ?? null,
-  );
+  const { data: sessions = [] } = useSessions();
+  const { data: usage } = useUsage();
+  const remaining = usage?.remaining ?? DAILY_MESSAGE_LIMIT;
+
+  const [personaId, setPersonaId] = useState<PersonaId>(DEFAULT_PERSONA_ID);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [remaining, setRemaining] = useState(bootstrap.remaining);
+  const [bootstrapped, setBootstrapped] = useState(false);
+
   const persona = getPersona(personaId);
   const limitReached = remaining <= 0;
 
-  const { create, saveMessages, remove } = useSessionActions();
+  const { create, saveMessages, remove, fetchSession, invalidateUsage } =
+    useSessionActions();
 
-  // When true, the next persistence pass is skipped (used when loading a stored
-  // session so we don't immediately re-write / re-order it). Starts true when a
-  // conversation was restored on mount, so that initial state isn't re-saved.
-  const loadingRef = useRef(bootstrap.session != null);
+  const loadingRef = useRef(false);
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: () => ({
+          persona: personaId,
+          sessionId: activeId,
+        }),
+      }),
+    [personaId, activeId],
+  );
 
   const { messages, sendMessage, status, stop, error, regenerate, setMessages } =
     useChat({
-      messages: bootstrap.session?.messages ?? [],
-      transport: new DefaultChatTransport({
-        api: "/api/chat",
-        body: { persona: personaId },
-      }),
+      transport,
       onError: (chatError) => {
         toast.error(
           chatError.message || "Something went wrong. Please try again.",
         );
+        void invalidateUsage();
+      },
+      onFinish: () => {
+        void invalidateUsage();
       },
     });
 
   const isBusy = status === "submitted" || status === "streaming";
   const hasMessages = messages.length > 0;
   const firstName = persona.name.split(" ")[0];
+  const userMessageCount = messages.filter((m) => m.role === "user").length;
+  const conversationFull =
+    userMessageCount >= MAX_USER_MESSAGES_PER_SESSION ||
+    messages.length >= MAX_TOTAL_MESSAGES_PER_SESSION;
 
-  // Persist the conversation whenever a turn completes.
+  useEffect(() => {
+    if (bootstrapped || sessions.length === 0) {
+      return;
+    }
+    const latest = sessions[0];
+    void fetchSession(latest.id).then((session) => {
+      loadingRef.current = true;
+      setPersonaId(session.personaId);
+      setMessages(session.messages);
+      setActiveId(session.id);
+      setBootstrapped(true);
+    });
+  }, [sessions, bootstrapped, fetchSession, setMessages]);
+
   useEffect(() => {
     if (loadingRef.current) {
       loadingRef.current = false;
@@ -265,7 +299,7 @@ export function Chat() {
     if (status === "streaming" || status === "submitted") {
       return;
     }
-    saveMessages(activeId, messages);
+    void saveMessages(activeId, messages);
   }, [status, messages, activeId, saveMessages]);
 
   const startFresh = useCallback(
@@ -275,7 +309,6 @@ export function Chat() {
       setMessages([]);
       setPersonaId(nextPersona);
       setActiveId(null);
-      store.setActiveSessionId(null);
     },
     [setMessages, stop],
   );
@@ -295,48 +328,58 @@ export function Chat() {
   );
 
   const handleSelectSession = useCallback(
-    (id: string) => {
-      const session = store.getSession(id);
-      if (!session) {
-        return;
+    async (id: string) => {
+      try {
+        const session = await fetchSession(id);
+        stop();
+        loadingRef.current = true;
+        setPersonaId(session.personaId);
+        setMessages(session.messages);
+        setActiveId(id);
+      } catch {
+        toast.error("Could not load chat");
       }
-      stop();
-      loadingRef.current = true;
-      setPersonaId(session.personaId);
-      setMessages(session.messages);
-      setActiveId(id);
-      store.setActiveSessionId(id);
     },
-    [setMessages, stop],
+    [fetchSession, setMessages, stop],
   );
 
   const handleDeleteSession = useCallback(
-    (id: string) => {
-      remove(id);
-      toast.success("Chat deleted");
-      if (id === activeId) {
-        const remaining = store.getSessionIndex();
-        if (remaining.length > 0) {
-          handleSelectSession(remaining[0].id);
-        } else {
-          startFresh(personaId);
+    async (id: string) => {
+      try {
+        await remove(id);
+        toast.success("Chat deleted");
+        if (id === activeId) {
+          const next = sessions.filter((s) => s.id !== id);
+          if (next.length > 0) {
+            void handleSelectSession(next[0].id);
+          } else {
+            startFresh(personaId);
+          }
         }
+      } catch {
+        toast.error("Could not delete chat");
       }
     },
-    [activeId, handleSelectSession, personaId, remove, startFresh],
+    [activeId, handleSelectSession, personaId, remove, sessions, startFresh],
   );
 
   const submit = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isBusy) {
         return;
       }
 
-      if (store.getUsageToday().remaining <= 0) {
-        setRemaining(0);
+      if (remaining <= 0) {
         toast.error(
           `Daily limit reached. You can send ${DAILY_MESSAGE_LIMIT} messages per day, please come back tomorrow.`,
+        );
+        return;
+      }
+
+      if (conversationFull) {
+        toast.error(
+          `This chat is full (${MAX_USER_MESSAGES_PER_SESSION} messages from you). Start a new chat to continue.`,
         );
         return;
       }
@@ -348,21 +391,33 @@ export function Chat() {
         return;
       }
 
-      if (!activeId) {
-        const title =
-          trimmed.length > 48 ? `${trimmed.slice(0, 48).trimEnd()}…` : trimmed;
-        const session = create(personaId, title);
-        setActiveId(session.id);
-        store.setActiveSessionId(session.id);
+      let sessionId = activeId;
+      if (!sessionId) {
+        try {
+          const title =
+            trimmed.length > 48 ? `${trimmed.slice(0, 48).trimEnd()}…` : trimmed;
+          const session = await create(personaId, title);
+          sessionId = session.id;
+          setActiveId(session.id);
+        } catch {
+          toast.error("Could not create chat");
+          return;
+        }
       }
 
       sendMessage({ text: trimmed });
-      setRemaining(store.consumeUsage().remaining);
     },
-    [activeId, create, isBusy, personaId, sendMessage],
+    [
+      activeId,
+      conversationFull,
+      create,
+      isBusy,
+      personaId,
+      remaining,
+      sendMessage,
+    ],
   );
 
-  // Keyboard shortcut: ⌘/Ctrl + Shift + O → new chat.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
@@ -385,9 +440,9 @@ export function Chat() {
       <ChatSidebar
         activeId={activeId}
         className="hidden w-72 shrink-0 border-r md:flex"
-        onDelete={handleDeleteSession}
+        onDelete={(id) => void handleDeleteSession(id)}
         onNew={handleNewChat}
-        onSelect={handleSelectSession}
+        onSelect={(id) => void handleSelectSession(id)}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -410,10 +465,10 @@ export function Chat() {
                   <ChatSidebar
                     activeId={activeId}
                     className="h-full w-full"
-                    onDelete={handleDeleteSession}
+                    onDelete={(id) => void handleDeleteSession(id)}
                     onNavigate={() => setSheetOpen(false)}
                     onNew={handleNewChat}
-                    onSelect={handleSelectSession}
+                    onSelect={(id) => void handleSelectSession(id)}
                   />
                 </SheetContent>
               </Sheet>
@@ -436,6 +491,11 @@ export function Chat() {
                 activeId={personaId}
                 onChange={handlePersonaChange}
               />
+              <Button asChild size="icon" variant="ghost">
+                <Link aria-label="Profile" href="/profile">
+                  <UserRoundIcon className="size-5" />
+                </Link>
+              </Button>
               <Button
                 aria-label="New chat"
                 className="md:hidden"
@@ -460,13 +520,9 @@ export function Chat() {
                     status === "streaming" && index === lastMessageIndex;
                   const showActions = isAssistant && !isStreamingLast;
                   const canRegenerate =
-                    isAssistant &&
-                    index === lastMessageIndex &&
-                    !isBusy;
+                    isAssistant && index === lastMessageIndex && !isBusy;
                   const rawText = getMessageText(message);
-                  const text = isAssistant
-                    ? removeEmDashes(rawText)
-                    : rawText;
+                  const text = isAssistant ? removeEmDashes(rawText) : rawText;
 
                   return (
                     <motion.div
@@ -522,7 +578,7 @@ export function Chat() {
                   );
                 })
               ) : (
-                <Hero onPick={submit} persona={persona} />
+                <Hero onPick={(text) => void submit(text)} persona={persona} />
               )}
 
               {status === "submitted" && <TypingIndicator persona={persona} />}
@@ -554,18 +610,27 @@ export function Chat() {
               </div>
             )}
 
+            {conversationFull && !limitReached && (
+              <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-700 text-sm dark:text-amber-400">
+                This chat has reached its message limit. Start a new chat to
+                continue.
+              </div>
+            )}
+
             <PromptInput
               className="rounded-2xl border-input shadow-sm"
-              onSubmit={(message) => submit(message.text)}
+              onSubmit={(message) => void submit(message.text)}
             >
               <PromptInputBody>
                 <PromptInputTextarea
-                  disabled={limitReached && !isBusy}
+                  disabled={(limitReached || conversationFull) && !isBusy}
                   maxLength={MAX_MESSAGE_CHARS}
                   placeholder={
                     limitReached
                       ? "Daily limit reached, back tomorrow…"
-                      : `Message ${firstName}…`
+                      : conversationFull
+                        ? "Chat full — start a new chat…"
+                        : `Message ${firstName}…`
                   }
                 />
               </PromptInputBody>
@@ -580,7 +645,7 @@ export function Chat() {
                     "bg-linear-to-br text-white transition-opacity hover:opacity-90",
                     persona.accent.gradient,
                   )}
-                  disabled={limitReached && !isBusy}
+                  disabled={(limitReached || conversationFull) && !isBusy}
                   onStop={stop}
                   status={status}
                 />
@@ -591,7 +656,7 @@ export function Chat() {
               <span
                 className={cn(
                   "font-medium",
-                  remaining <= 5 && "text-amber-600 dark:text-amber-500",
+                  remaining <= 3 && "text-amber-600 dark:text-amber-500",
                 )}
               >
                 {remaining}/{DAILY_MESSAGE_LIMIT} messages left today

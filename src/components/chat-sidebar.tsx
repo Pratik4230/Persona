@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useSessions } from "@/hooks/use-chat-sessions";
-import type { SessionMeta } from "@/lib/chat-store";
+import type { SessionMeta } from "@/lib/chat/types";
 import { getPersona } from "@/lib/personas";
 import { cn } from "@/lib/utils";
 
@@ -205,8 +205,8 @@ export function ChatSidebar({
 
       <div className="border-t px-4 py-3">
         <p className="text-muted-foreground text-xs">
-          {sessions.length} {sessions.length === 1 ? "chat" : "chats"} · saved
-          locally
+          {sessions.length} {sessions.length === 1 ? "chat" : "chats"} · synced
+          to your account
         </p>
       </div>
 
