@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { BuilderCredits } from "@/components/builder-credits";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useSessions } from "@/hooks/use-chat-sessions";
@@ -203,11 +204,12 @@ export function ChatSidebar({
         )}
       </ScrollArea>
 
-      <div className="border-t px-4 py-3">
+      <div className="space-y-3 border-t px-4 py-3">
         <p className="text-muted-foreground text-xs">
           {sessions.length} {sessions.length === 1 ? "chat" : "chats"} · synced
           to your account
         </p>
+        <BuilderCredits variant="sidebar" />
       </div>
 
       <AlertDialog
